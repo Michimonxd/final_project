@@ -60,9 +60,9 @@ def check_data_integrity(X_train, X_test, y_train, y_test, name):
 
 
 # Load the trained model
-rf_model = joblib.load('random_forest_model.joblib')
+#rf_model = joblib.load('random_forest_model.joblib')
 # Load the scaler from the .joblib file
-scaler = joblib.load('scaler.joblib')
+#scaler = joblib.load('scaler.joblib')
 
 label_mapping = {
     0: 'ARP_poisioning',
