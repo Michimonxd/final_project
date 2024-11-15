@@ -54,6 +54,21 @@ explainer = shap.TreeExplainer(rf_model)
 
 # Function to display an alert if a specific attack type is detected
 def check_attack_type(prediction):
+    """
+    Display an alert if the given prediction is one of the following attack types:
+        - DDOS_Slowloris
+        - NMAP_TCP_scan
+        - ARP_poisioning
+        - DOS_SYN_Hping
+        - NMAP_UDP_SCAN
+        - NMAP_XMAS_TREE_SCAN
+        - NMAP_OS_DETECTION
+        - NMAP_FIN_SCAN
+        - NMAP_TCP_scan
+        - Metasploit_Brute_Force_SSH
+    
+    The alert is displayed as a red box with white text and a blinking animation.
+    """
     alert_attack_types = ['DDOS_Slowloris', 'NMAP_TCP_scan', 'ARP_poisioning', 'DOS_SYN_Hping', 'NMAP_UDP_SCAN', 'NMAP_XMAS_TREE_SCAN', 'NMAP_OS_DETECTION', 'NMAP_FIN_SCAN', 'NMAP_TCP_scan', 'Metasploit_Brute_Force_SSH', ]  
     
     if prediction in alert_attack_types:
@@ -70,11 +85,20 @@ def check_attack_type(prediction):
             """,
             unsafe_allow_html=True
         )
-    else:
-        st.write(f"Prediction: {prediction} is not in the critical alert list.")
+
 
 # Main function for the Streamlit app
 def main():
+    """
+    Main entry point for the Streamlit app.
+
+    This function:
+    1. Asks the user to upload a CSV file.
+    2. Reads the uploaded CSV file into a Pandas DataFrame.
+    3. Applies LabelEncoder to each categorical column in the DataFrame.
+    4. Aligns the columns of the DataFrame to match the order of features used during training.
+    5. Calls the simulate_real_time_feed_from_df function to simulate a real-time data feed.
+    """
     st.title("Real-Time Data Simulation and Prediction App")
 
     # Upload a CSV file
@@ -101,6 +125,25 @@ def main():
 
 # Function to shuffle and simulate real-time data feeding and trigger alerts
 def simulate_real_time_feed_from_df(df, delay=1):
+    """
+    Simulates real-time data feeding and prediction using the given DataFrame.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        DataFrame containing the data to simulate.
+    delay : int, optional
+        Delay in seconds between each row of the DataFrame being processed,
+        by default 1.
+
+    Notes
+    -----
+    This function assumes that the DataFrame `df` has the same columns as the
+    training data, and that the columns have been encoded using the same
+    LabelEncoder.
+
+    Also, this function triggers an alert if a specific attack type is detected.
+    """
     shuffled_df = df.sample(frac=1, random_state=42).reset_index(drop=True)
 
     for _, row in shuffled_df.iterrows():
@@ -117,7 +160,7 @@ def simulate_real_time_feed_from_df(df, delay=1):
 
         prediction_label = label_mapping.get(prediction[0], "Unknown")
         st.write(f"\nPredicted Attack Type: {prediction_label}")
-        #st.write(f"Prediction Probabilities: {prediction_proba[0]}")
+        st.write(f"Prediction Probabilities: {prediction_proba[0]}")
 
         # Trigger an alert if a specific attack type is detected
         check_attack_type(prediction_label)
