@@ -21,7 +21,7 @@ import joblib
 import time
 import json
 import streamlit.components.v1 as components
-import shap
+
 
 # Initialize LabelEncoder
 label_encoder = LabelEncoder()
@@ -49,8 +49,6 @@ scaler = joblib.load('scaler.joblib')
 # Load the feature names used during training
 feature_names = joblib.load('feature_names.joblib')
 
-# Initialize SHAP explainer
-explainer = shap.TreeExplainer(rf_model)
 
 # Function to display an alert if a specific attack type is detected
 def check_attack_type(prediction):
