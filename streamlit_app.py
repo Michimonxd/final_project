@@ -21,7 +21,7 @@ import joblib
 import time
 import json
 import streamlit.components.v1 as components
-
+import altair as alt
 
 # Initialize LabelEncoder
 label_encoder = LabelEncoder()
@@ -86,6 +86,9 @@ def check_attack_type(prediction):
 
 # Main function for the Streamlit app
 def main():
+    """
+    Main entry point for the Streamlit app.
+    """
     st.sidebar.title("Real-Time Data Simulation")
     
     # Upload a CSV file in the sidebar
@@ -108,7 +111,9 @@ def main():
     if stop_button:
         st.session_state['running'] = False
 
-    # Check if a file has been uploaded
+    # Create tabs for Data Preview, Prediction Results, and Summary
+    tab1, tab2, tab3 = st.tabs(["Data Preview", "Prediction Results", "Summary"])
+
     if uploaded_file is not None:
         df = pd.read_csv(uploaded_file)
         st.sidebar.success("File uploaded successfully!")
@@ -121,36 +126,93 @@ def main():
         # Align columns to match the training data
         df_aligned = align_columns(df, feature_names)
 
-        # Tabs for data preview and results
-        tab1, tab2 = st.tabs(["Data Preview", "Prediction Results"])
-
         with tab1:
-            st.write("### Data Preview")
+            st.write("### Uploaded Data")
             st.dataframe(df.head())  
-            st.write('### Aligned Data')
+            st.write('### Transformed Data')
             st.dataframe(df_aligned.head())
 
-    with tab2:
-        if st.session_state['running']:
-            with st.spinner("Running real-time simulation..."):
-                simulate_real_time_feed_from_df(df_aligned)
-        else:
+        with tab2:
+            if st.session_state['running']:
+                with st.spinner("Running real-time simulation..."):
+                    simulate_real_time_feed_from_df(df_aligned)
+            else:
+                if st.session_state['results']:
+                    st.write("### Previous Prediction Results")
+                    for result in st.session_state['results']:
+                        st.markdown(
+                            f"<p style='font-size:14px;'><strong>Top Predicted Attack Type:</strong> "
+                            f"<span style='font-size:12px;'>{result['label']}</span> "
+                            f"({result['probability']:.2%})</p>",
+                            unsafe_allow_html=True
+                        )
+                        with st.expander("Feature Values"):
+                            st.write(result['data'])
+
+        with tab3:
+            st.write("### Prediction Counts")
             if st.session_state['results']:
-                st.write("### Previous Prediction Results")
-                for result in st.session_state['results']:
-                    # Display the prediction result with smaller font size
-                    st.markdown(
-                        f"<p style='font-size:14px;'><strong>Top Predicted Attack Type:</strong> "
-                        f"<span style='font-size:12px;'>{result['label']}</span> "
-                        f"({result['probability']:.2%})</p>",
-                        unsafe_allow_html=True
-                    )
-                    with st.expander("Feature Values"):
-                        st.write(result['data'])
+                # Count of each prediction label
+                prediction_labels = [result['label'] for result in st.session_state['results']]
+                prediction_counts = pd.Series(prediction_labels).value_counts().reset_index()
+                prediction_counts.columns = ['Prediction', 'Count']
+
+                # color bar chart
+                prediction_counts['Color'] = prediction_counts['Prediction'].apply(
+                    lambda x: 'blue' if x in ['MQTT_Publish', 'Thing_Speak', 'Wipro_bulb'] else 'red'
+                )
+
+            
+                bar_chart = alt.Chart(prediction_counts).mark_bar().encode(
+                    x=alt.X('Prediction:N', sort='-y'),
+                    y='Count:Q',
+                    color=alt.Color('Color:N', scale=None),  
+                    tooltip=['Prediction', 'Count']
+                ).properties(
+                    width=600,
+                    height=400
+                )
+
+                #display bar chart
+                st.altair_chart(bar_chart, use_container_width=True)
+
+    else:
+        with tab1:
+            st.write("Please upload a CSV file to preview data.")
+
+        with tab2:
+            st.write("No results to display yet. Upload a file and start the simulation.")
+
+        with tab3:
+            st.write("No summary available yet. Start a simulation to view prediction counts.")
+
+
                         
                         
 # Function to shuffle and simulate real-time data feeding and trigger alerts
 def simulate_real_time_feed_from_df(df, delay=1):
+    """
+    Simulate real-time data feeding and prediction using the given DataFrame.
+
+    This function:
+    1. Shuffles the given DataFrame to randomize row order.
+    2. Iterates over each row in the shuffled DataFrame.
+    3. Applies scaling to the row using the given scaler.
+    4. Gets the prediction and probabilities from the given model.
+    5. Stores the result in the session state.
+    6. Displays the result as a metric with a delta showing the top predicted probability.
+    7. Triggers an alert if a specific attack type is detected.
+    8. Updates a progress bar to show the progress of the simulation.
+    9. Sleeps for the given delay between each row processing.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        DataFrame containing the data to simulate.
+    delay : int, optional
+        Delay in seconds between each row of the DataFrame being processed,
+        by default 1.
+    """
     shuffled_df = df.sample(frac=1, random_state=42).reset_index(drop=True)
     total_rows = len(shuffled_df)
     progress_bar = st.progress(0)
@@ -171,7 +233,7 @@ def simulate_real_time_feed_from_df(df, delay=1):
         top_index = prediction_proba.argmax()
         top_label = label_mapping.get(top_index, "Unknown")
 
-        # Store results in session state
+        # store result so it doesnt disappear
         st.session_state['results'].append({
             'label': top_label,
             'probability': top_prediction,
@@ -197,6 +259,28 @@ def simulate_real_time_feed_from_df(df, delay=1):
 
 # Utility function to align columns
 def align_columns(df, feature_names):
+    """
+    Align a DataFrame's columns with the given feature names.
+
+    This function takes a DataFrame and a list of feature names and returns a new
+    DataFrame with the same data, but with columns aligned to match the feature
+    names. If a column is present in the original DataFrame but not in the feature
+    names, it is omitted from the aligned DataFrame. If a column is present in the
+    feature names but not in the original DataFrame, it is added to the aligned
+    DataFrame with a value of 0.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        The DataFrame to align.
+    feature_names : list
+        The list of feature names to align the DataFrame to.
+
+    Returns
+    -------
+    pandas.DataFrame
+        The aligned DataFrame.
+    """
     aligned_df = pd.DataFrame(columns=feature_names)
     for col in feature_names:
         if col in df.columns:

@@ -46,41 +46,9 @@ label_mapping = {
 # Load the pre-trained model and scaler
 rf_model = joblib.load('random_forest_model_smote.joblib')
 scaler = joblib.load('scaler.joblib')
-# Load the feature names used during training
 feature_names = joblib.load('feature_names.joblib')
 
-# Add custom CSS to create a laptop frame appearance
-st.markdown("""
-    <style>
-        .laptop-container {
-            width: 900px;
-            margin: auto;
-            border: 8px solid #333;
-            border-radius: 10px;
-            background-color: #f0f0f0;
-            box-shadow: 0px 10px 20px rgba(0, 0, 0, 0.25);
-            position: relative;
-        }
-        .laptop-header {
-            background-color: #333;
-            color: white;
-            text-align: center;
-            padding: 5px 0;
-            font-size: 18px;
-            border-top-left-radius: 5px;
-            border-top-right-radius: 5px;
-        }
-        .laptop-screen {
-            padding: 20px;
-            height: 600px;
-            overflow-y: auto;
-            background-color: white;
-        }
-    </style>
-    <div class="laptop-container">
-        <div class="laptop-header">Real-Time Data Simulation App</div>
-        <div class="laptop-screen">
-""", unsafe_allow_html=True)
+
 
 # Function to display an alert if a specific attack type is detected
 def check_attack_type(prediction):
@@ -113,8 +81,7 @@ def check_attack_type(prediction):
             }}
             </style>
             """,
-            unsafe_allow_html=True
-        )
+            unsafe_allow_html=True)
 
 
 # Main function for the Streamlit app
@@ -127,17 +94,36 @@ def main():
     2. Reads the uploaded CSV file into a Pandas DataFrame.
     3. Applies LabelEncoder to each categorical column in the DataFrame.
     4. Aligns the columns of the DataFrame to match the order of features used during training.
-    5. Calls the simulate_real_time_feed_from_df function to simulate a real-time data feed.
+    5. Calls the simulate_real_time_feed_from_df function to simulate a real-time data feed and trigger alerts if a specific attack type is detected.
     """
-    st.title("Real-Time Data Simulation and Prediction App")
+    st.sidebar.title("Real-Time Data Simulation")
+    
+    # Upload a CSV file in the sidebar
+    uploaded_file = st.sidebar.file_uploader("Upload a CSV file", type=["csv"])
+    
+    # Initialize session state for storing results
+    if 'running' not in st.session_state:
+        st.session_state['running'] = False
+    if 'results' not in st.session_state:
+        st.session_state['results'] = []
 
-    # Upload a CSV file
-    uploaded_file = st.file_uploader("Upload a CSV file", type=["csv"])
+    # Create start/stop buttons
+    start_button = st.sidebar.button("Start Simulation")
+    stop_button = st.sidebar.button("Stop Simulation")
+
+    if start_button:
+        st.session_state['running'] = True
+        st.session_state['results'] = []  
+
+    if stop_button:
+        st.session_state['running'] = False
+
+    # Always initialize the tabs to ensure they are available
+    tab1, tab2 = st.tabs(["Data Preview", "Prediction Results"])
 
     if uploaded_file is not None:
         df = pd.read_csv(uploaded_file)
-        #st.write("Uploaded DataFrame:")
-        #st.dataframe(df)
+        st.sidebar.success("File uploaded successfully!")
 
         # Apply LabelEncoder to each categorical column
         for column in df.columns:
@@ -146,17 +132,55 @@ def main():
 
         # Align columns to match the training data
         df_aligned = align_columns(df, feature_names)
-        #st.write("Aligned DataFrame:")
-        #st.dataframe(df_aligned)
 
-        # Run the real-time data simulation function
-        if st.button("Start Real-Time Simulation"):
-            simulate_real_time_feed_from_df(df_aligned)
+        with tab1:
+            st.write("### Uploaded Data")
+            st.dataframe(df.head())  
+            st.write('### Transformed Data')
+            st.dataframe(df_aligned.head())
 
+        with tab2:
+            if st.session_state['running']:
+                with st.spinner("Running real-time simulation..."):
+                    simulate_real_time_feed_from_df(df_aligned)
+            else:
+                if st.session_state['results']:
+                    st.write("### Previous Prediction Results")
+                    for result in st.session_state['results']:
+                        
+                        st.markdown(
+                            f"<p style='font-size:14px;'><strong>Top Predicted Attack Type:</strong> "
+                            f"<span style='font-size:12px;'>{result['label']}</span> "
+                            f"({result['probability']:.2%})</p>",
+                            unsafe_allow_html=True
+                        )
+                        with st.expander("Feature Values"):
+                            st.write(result['data'])
+    else:
+        # Provide a default message when no file is uploaded
+        with tab1:
+            st.write("Please upload a CSV file to preview data.")
+
+        with tab2:
+            st.write("No results to display yet. Upload a file and start the simulation.")
+
+                        
+                        
 # Function to shuffle and simulate real-time data feeding and trigger alerts
 def simulate_real_time_feed_from_df(df, delay=1):
     """
-    Simulates real-time data feeding and prediction using the given DataFrame.
+    Simulate real-time data feeding and prediction using the given DataFrame.
+
+    This function:
+    1. Shuffles the given DataFrame to randomize row order.
+    2. Iterates over each row in the shuffled DataFrame.
+    3. Applies scaling to the row using the given scaler.
+    4. Gets the prediction and probabilities from the given model.
+    5. Stores the result in the session state.
+    6. Displays the result as a metric with a delta showing the top predicted probability.
+    7. Triggers an alert if a specific attack type is detected.
+    8. Updates a progress bar to show the progress of the simulation.
+    9. Sleeps for the given delay between each row processing.
 
     Parameters
     ----------
@@ -165,47 +189,82 @@ def simulate_real_time_feed_from_df(df, delay=1):
     delay : int, optional
         Delay in seconds between each row of the DataFrame being processed,
         by default 1.
-
-    Notes
-    -----
-    This function assumes that the DataFrame `df` has the same columns as the
-    training data, and that the columns have been encoded using the same
-    LabelEncoder.
-
-    Also, this function triggers an alert if a specific attack type is detected.
     """
     shuffled_df = df.sample(frac=1, random_state=42).reset_index(drop=True)
+    total_rows = len(shuffled_df)
+    progress_bar = st.progress(0)
 
-    for _, row in shuffled_df.iterrows():
-        df_row = pd.DataFrame([row], columns= feature_names)
+    for i, row in shuffled_df.iterrows():
+        if not st.session_state['running']:
+            break  
 
-        st.write("\nFeature Values:")
-        st.write(df_row)
-
-        new_data_scaled = scaler.transform(df_row.values) 
+        df_row = pd.DataFrame([row], columns=feature_names)
+        new_data_scaled = scaler.transform(df_row.values)
         new_data_scaled_df = pd.DataFrame(new_data_scaled, columns=feature_names)
 
         prediction = rf_model.predict(new_data_scaled_df)
-        prediction_proba = rf_model.predict_proba(new_data_scaled_df)
+        prediction_proba = rf_model.predict_proba(new_data_scaled_df)[0]
 
         prediction_label = label_mapping.get(prediction[0], "Unknown")
-        st.write(f"\nPredicted Attack Type: {prediction_label}")
-        st.write(f"Prediction Probabilities: {prediction_proba[0]}")
+        top_prediction = prediction_proba.max()
+        top_index = prediction_proba.argmax()
+        top_label = label_mapping.get(top_index, "Unknown")
+
+        # Store results in session state
+        st.session_state['results'].append({
+            'label': top_label,
+            'probability': top_prediction,
+            'data': df_row
+        })
+
+        # Display result
+        st.metric(label="Top Predicted Attack Type", value=top_label, delta=f"{top_prediction:.2%}")
+        with st.expander("Feature Values"):
+            st.write(df_row)
 
         # Trigger an alert if a specific attack type is detected
         check_attack_type(prediction_label)
 
+        # Update progress bar
+        progress = (i + 1) / total_rows
+        progress_bar.progress(progress)
+
         time.sleep(delay)
+
+    if not st.session_state['running']:
+        st.warning("Simulation stopped.")
 
 # Utility function to align columns
 def align_columns(df, feature_names):
+    """
+    Align a DataFrame's columns with the given feature names.
+
+    This function takes a DataFrame and a list of feature names and returns a new
+    DataFrame with the same data, but with columns aligned to match the feature
+    names. If a column is present in the original DataFrame but not in the feature
+    names, it is omitted from the aligned DataFrame. If a column is present in the
+    feature names but not in the original DataFrame, it is added to the aligned
+    DataFrame with a value of 0.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        The DataFrame to align.
+    feature_names : list
+        The list of feature names to align the DataFrame to.
+
+    Returns
+    -------
+    pandas.DataFrame
+        The aligned DataFrame.
+    """
     aligned_df = pd.DataFrame(columns=feature_names)
     for col in feature_names:
         if col in df.columns:
             aligned_df[col] = df[col]
         else:
-            aligned_df[col] = 0  # Fill missing columns with 0 or an appropriate value
-    aligned_df = aligned_df.reindex(columns=feature_names, fill_value=0)  # Ensure correct column order
+            aligned_df[col] = 0  
+    aligned_df = aligned_df.reindex(columns=feature_names, fill_value=0)  
     return aligned_df
 
 main()
